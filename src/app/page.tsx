@@ -10,7 +10,7 @@ import { Dashboard } from "@/components/Dashboard"
 import { TutorialOverlay } from "@/components/TutorialOverlay"
 import { PaymentModal } from "@/components/PaymentModal"
 import { supabase } from "@/lib/supabase"
-import { IntroVideo } from "@/components/IntroVideo"
+import { IntroVideo } from "@/components/teste2.mp4"
 
 type Theme = {
   id: string

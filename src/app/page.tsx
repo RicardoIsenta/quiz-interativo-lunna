@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { ChevronRight, Sparkles, Heart, Moon, CheckCircle2, Play, ArrowLeft, Flame, Scale, Activity, Baby, Users, Salad, Bed, Target, LogOut, User, BarChart3, Plus, Trash2, Save } from "lucide-react"
+import { ChevronRight, Sparkles, Heart, Moon, CheckCircle2, Play, ArrowLeft, Flame, Scale, Activity, Baby, Users, Salad, Bed, Target, LogOut, User, BarChart3 } from "lucide-react"
 import { Language, translations } from "@/lib/i18n/translations"
 import { themeQuizzes, QuizQuestion } from "@/lib/i18n/questions"
 import { LanguageSelector } from "@/components/LanguageSelector"
@@ -10,7 +10,7 @@ import { Dashboard } from "@/components/Dashboard"
 import { TutorialOverlay } from "@/components/TutorialOverlay"
 import { PaymentModal } from "@/components/PaymentModal"
 import { supabase } from "@/lib/supabase"
-import { IntroVideo } from "@/components/teste2.mp4"
+import { IntroVideo } from "@/components/IntroVideo"
 
 type Theme = {
   id: string
@@ -20,12 +20,6 @@ type Theme = {
 
 type QuizAnswers = {
   [key: string]: string | string[]
-}
-
-type TableRow = {
-  id: string
-  question: string
-  answer: string
 }
 
 const themes: Theme[] = [
@@ -44,8 +38,8 @@ export default function LunnaApp() {
   const [currentScreen, setCurrentScreen] = useState<"video" | "intro" | "themes" | "quiz" | "auth" | "payment" | "result" | "dashboard">("video")
   const [authMode, setAuthMode] = useState<"login" | "signup">("signup")
   const [selectedTheme, setSelectedTheme] = useState<Theme | null>(null)
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
   const [quizAnswers, setQuizAnswers] = useState<QuizAnswers>({})
-  const [tableRows, setTableRows] = useState<TableRow[]>([])
   const [email, setEmail] = useState("")
   const [isTransitioning, setIsTransitioning] = useState(false)
   const [user, setUser] = useState<any>(null)
@@ -171,16 +165,8 @@ export default function LunnaApp() {
 
   const handleThemeSelect = (theme: Theme) => {
     setSelectedTheme(theme)
+    setCurrentQuestionIndex(0)
     setQuizAnswers({})
-    
-    // Inicializar tabela com perguntas do quiz
-    const currentQuiz = themeQuizzes[theme.id]
-    const initialRows: TableRow[] = currentQuiz.map((question, index) => ({
-      id: `row-${index}`,
-      question: question.question[language],
-      answer: ""
-    }))
-    setTableRows(initialRows)
     
     // Set motivational phrase for the theme
     const themeTranslation = t.themes.themes[theme.id as keyof typeof t.themes.themes]
@@ -193,76 +179,61 @@ export default function LunnaApp() {
     }, 300)
   }
 
-  const handleAddRow = () => {
-    const newRow: TableRow = {
-      id: `row-${Date.now()}`,
-      question: "",
-      answer: ""
-    }
-    setTableRows([...tableRows, newRow])
+  const handleAnswer = (questionId: string, answer: string | string[]) => {
+    setQuizAnswers(prev => ({ ...prev, [questionId]: answer }))
   }
 
-  const handleRemoveRow = (id: string) => {
-    setTableRows(tableRows.filter(row => row.id !== id))
-  }
-
-  const handleRowChange = (id: string, field: 'question' | 'answer', value: string) => {
-    setTableRows(tableRows.map(row => 
-      row.id === id ? { ...row, [field]: value } : row
-    ))
-  }
-
-  const handleSaveTable = async () => {
-    // Converter tabela em formato de respostas
-    const answers: QuizAnswers = {}
-    tableRows.forEach((row, index) => {
-      if (row.question && row.answer) {
-        answers[`custom-${index}`] = row.answer
-      }
-    })
-
-    setQuizAnswers(answers)
-
-    // Verificar se usuário está logado
-    if (user) {
-      // Usuário logado - salvar quiz e ir para pagamento
-      try {
-        const { data, error } = await supabase.from('quiz_responses').insert({
-          user_id: user.id,
-          theme_id: selectedTheme!.id,
-          theme_title: t.themes.themes[selectedTheme!.id as keyof typeof t.themes.themes].title,
-          answers: { tableData: tableRows },
-          email: user.email,
-          language: language
-        }).select().single()
-
-        if (error) throw error
-        
-        if (data) {
-          setCurrentQuizResponseId(data.id)
-        }
-      } catch (error) {
-        console.error('Error saving quiz response:', error)
-      }
-
+  const handleNextQuestion = async () => {
+    const currentQuiz = selectedTheme ? themeQuizzes[selectedTheme.id] : []
+    
+    if (currentQuestionIndex < currentQuiz.length - 1) {
       setIsTransitioning(true)
       setTimeout(() => {
-        setCurrentScreen("payment")
+        setCurrentQuestionIndex(prev => prev + 1)
         setIsTransitioning(false)
       }, 300)
     } else {
-      // Usuário não logado - salvar dados temporariamente e ir para auth
-      setPendingQuizData({
-        theme_id: selectedTheme!.id,
-        theme_title: t.themes.themes[selectedTheme!.id as keyof typeof t.themes.themes].title,
-        answers: { tableData: tableRows }
-      })
+      // Quiz finalizado - verificar se usuário está logado
+      if (user) {
+        // Usuário logado - salvar quiz e ir para pagamento
+        try {
+          const { data, error } = await supabase.from('quiz_responses').insert({
+            user_id: user.id,
+            theme_id: selectedTheme!.id,
+            theme_title: t.themes.themes[selectedTheme!.id as keyof typeof t.themes.themes].title,
+            answers: quizAnswers,
+            email: user.email,
+            language: language
+          }).select().single()
 
-      setIsTransitioning(true)
-      setTimeout(() => {
-        setCurrentScreen("auth")
-        setIsTransitioning(false)
-      }, 300)
+          if (error) throw error
+          
+          if (data) {
+            setCurrentQuizResponseId(data.id)
+          }
+        } catch (error) {
+          console.error('Error saving quiz response:', error)
+        }
+
+        setIsTransitioning(true)
+        setTimeout(() => {
+          setCurrentScreen("payment")
+          setIsTransitioning(false)
+        }, 300)
+      } else {
+        // Usuário não logado - salvar dados temporariamente e ir para auth
+        setPendingQuizData({
+          theme_id: selectedTheme!.id,
+          theme_title: t.themes.themes[selectedTheme!.id as keyof typeof t.themes.themes].title,
+          answers: quizAnswers
+        })
+
+        setIsTransitioning(true)
+        setTimeout(() => {
+          setCurrentScreen("auth")
+          setIsTransitioning(false)
+        }, 300)
+      }
     }
   }
 
@@ -294,8 +265,8 @@ export default function LunnaApp() {
   const handleRestart = () => {
     setCurrentScreen("intro")
     setSelectedTheme(null)
+    setCurrentQuestionIndex(0)
     setQuizAnswers({})
-    setTableRows([])
     setEmail("")
   }
 
@@ -308,7 +279,9 @@ export default function LunnaApp() {
     setShowTutorial(false)
   }
 
-  const isTableValid = tableRows.length > 0 && tableRows.every(row => row.question.trim() && row.answer.trim())
+  const currentQuiz = selectedTheme ? themeQuizzes[selectedTheme.id] : []
+  const currentQuestion: QuizQuestion | undefined = currentQuiz[currentQuestionIndex]
+  const isAnswered = currentQuestion && quizAnswers[currentQuestion.id]
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-rose-50 dark:from-purple-950 dark:via-pink-950 dark:to-rose-950">
@@ -376,7 +349,7 @@ export default function LunnaApp() {
         </div>
       )}
 
-      {/* Intro Screen - ALTERADO PARA VÍDEO INFORMATIVO */}
+      {/* Intro Screen - COM VÍDEO INFORMATIVO DO GITHUB */}
       {currentScreen === "intro" && (
         <div className={`min-h-screen flex items-center justify-center p-4 transition-all duration-300 ${isTransitioning ? 'opacity-0 scale-95' : 'opacity-100 scale-100'}`}>
           <div className="w-full max-w-4xl">
@@ -393,19 +366,26 @@ export default function LunnaApp() {
             </div>
 
             <div className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-lg rounded-3xl shadow-2xl overflow-hidden border border-purple-100 dark:border-purple-900">
-              {/* Vídeo Informativo sobre o App */}
+              {/* Vídeo Informativo sobre o App - CARREGANDO DO GITHUB COM AUTOPLAY */}
               <div className="relative aspect-video bg-gradient-to-br from-purple-600 via-pink-600 to-rose-600">
-                <div className="absolute inset-0 bg-black/30"></div>
-                <div className="relative z-10 h-full flex flex-col items-center justify-center text-white p-8">
-                  <div className="mb-6 relative">
-                    <div className="absolute inset-0 bg-white/20 rounded-full blur-2xl animate-pulse"></div>
-                    <Play className="relative w-24 h-24 opacity-90 hover:opacity-100 hover:scale-110 transition-all cursor-pointer drop-shadow-2xl" />
-                  </div>
-                  <h2 className="text-3xl md:text-4xl font-bold mb-3 text-center">
-                    Descubra Como o Lunna Funciona
-                  </h2>
-                  <p className="text-lg md:text-xl opacity-95 text-center max-w-2xl">
-                    Veja como nosso aplicativo transforma sua jornada de autoconhecimento com resultados personalizados
+                <video 
+                  className="absolute inset-0 w-full h-full object-cover"
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  crossOrigin="anonymous"
+                >
+                  <source src="https://raw.githubusercontent.com/SEU_USUARIO/SEU_REPOSITORIO/main/teste2.mp4" type="video/mp4" />
+                  Seu navegador não suporta vídeos HTML5.
+                </video>
+                
+                {/* Fallback visual caso o vídeo não carregue */}
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-white p-8 bg-gradient-to-br from-purple-600/80 via-pink-600/80 to-rose-600/80 pointer-events-none">
+                  <Play className="w-20 h-20 mb-4 opacity-50" />
+                  <h3 className="text-3xl font-bold mb-2">Descubra Como o Lunna Funciona</h3>
+                  <p className="text-lg text-center max-w-md opacity-90">
+                    Veja como nosso aplicativo pode transformar sua jornada de bem-estar
                   </p>
                 </div>
               </div>
@@ -591,10 +571,10 @@ export default function LunnaApp() {
         </div>
       )}
 
-      {/* Quiz Screen - TABELA DE PREENCHIMENTO */}
-      {currentScreen === "quiz" && selectedTheme && (
-        <div className={`min-h-screen flex items-center justify-center p-4 py-12 transition-all duration-300 ${isTransitioning ? 'opacity-0 scale-95' : 'opacity-100 scale-100'}`}>
-          <div className="w-full max-w-5xl">
+      {/* Quiz Screen */}
+      {currentScreen === "quiz" && selectedTheme && currentQuestion && (
+        <div className={`min-h-screen flex items-center justify-center p-4 transition-all duration-300 ${isTransitioning ? 'opacity-0 scale-95' : 'opacity-100 scale-100'}`}>
+          <div className="w-full max-w-3xl">
             <div className="mb-8">
               <button
                 onClick={handleBackToThemes}
@@ -614,108 +594,123 @@ export default function LunnaApp() {
                     {t.themes.themes[selectedTheme.id as keyof typeof t.themes.themes].title}
                   </h2>
                 </div>
+                <span className="text-sm font-semibold text-gray-600 dark:text-gray-400">
+                  {currentQuestionIndex + 1} {t.quiz.of} {currentQuiz.length}
+                </span>
               </div>
 
               {/* Motivational Phrase */}
               {motivationalPhrase && (
-                <div className="mb-6 p-4 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/30 dark:to-pink-900/30 rounded-2xl border border-purple-200 dark:border-purple-800">
+                <div className="mb-4 p-4 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/30 dark:to-pink-900/30 rounded-2xl border border-purple-200 dark:border-purple-800">
                   <p className="text-center text-lg font-semibold text-purple-600 dark:text-purple-400">
                     {motivationalPhrase}
                   </p>
                 </div>
               )}
+
+              <div className="w-full h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                <div
+                  className={`h-full bg-gradient-to-r ${selectedTheme.color} transition-all duration-500`}
+                  style={{ width: `${((currentQuestionIndex + 1) / currentQuiz.length) * 100}%` }}
+                />
+              </div>
             </div>
 
             <div className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-lg rounded-3xl shadow-2xl p-8 md:p-12 border border-purple-100 dark:border-purple-900">
-              <div className="mb-6">
-                <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
-                  Preencha suas informações
-                </h3>
-                <p className="text-gray-600 dark:text-gray-400">
-                  Complete a tabela abaixo com suas respostas. Você pode editar as perguntas e adicionar novas linhas conforme necessário.
-                </p>
-              </div>
+              <h3 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-gray-100 mb-8">
+                {currentQuestion.question[language]}
+              </h3>
 
-              {/* Tabela de Preenchimento */}
-              <div className="space-y-4 mb-6">
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b-2 border-purple-200 dark:border-purple-800">
-                        <th className="text-left py-3 px-4 text-gray-900 dark:text-gray-100 font-bold">
-                          Pergunta
-                        </th>
-                        <th className="text-left py-3 px-4 text-gray-900 dark:text-gray-100 font-bold">
-                          Sua Resposta
-                        </th>
-                        <th className="w-16 py-3 px-4"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {tableRows.map((row) => (
-                        <tr key={row.id} className="border-b border-purple-100 dark:border-purple-900/50">
-                          <td className="py-3 px-4">
-                            <input
-                              type="text"
-                              value={row.question}
-                              onChange={(e) => handleRowChange(row.id, 'question', e.target.value)}
-                              placeholder="Digite a pergunta..."
-                              className="w-full px-4 py-2 rounded-xl border-2 border-purple-200 dark:border-purple-800 focus:border-purple-500 dark:focus:border-purple-500 focus:outline-none bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 transition-all"
-                            />
-                          </td>
-                          <td className="py-3 px-4">
-                            <input
-                              type="text"
-                              value={row.answer}
-                              onChange={(e) => handleRowChange(row.id, 'answer', e.target.value)}
-                              placeholder="Digite sua resposta..."
-                              className="w-full px-4 py-2 rounded-xl border-2 border-purple-200 dark:border-purple-800 focus:border-purple-500 dark:focus:border-purple-500 focus:outline-none bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 transition-all"
-                            />
-                          </td>
-                          <td className="py-3 px-4">
-                            <button
-                              onClick={() => handleRemoveRow(row.id)}
-                              className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
-                              title="Remover linha"
-                            >
-                              <Trash2 className="w-5 h-5" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              {currentQuestion.type === "single" && currentQuestion.options && (
+                <div className="space-y-4">
+                  {currentQuestion.options[language].map((option, index) => (
+                    <button
+                      key={index}
+                      onClick={() => handleAnswer(currentQuestion.id, option)}
+                      className={`w-full p-5 rounded-2xl border-2 transition-all duration-300 text-left hover:scale-105 ${
+                        quizAnswers[currentQuestion.id] === option
+                          ? `border-purple-500 bg-purple-50 dark:bg-purple-900/30 shadow-lg`
+                          : 'border-purple-200 dark:border-purple-800 hover:border-purple-400 dark:hover:border-purple-600'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-lg font-semibold text-gray-800 dark:text-gray-200">
+                          {option}
+                        </span>
+                        {quizAnswers[currentQuestion.id] === option && (
+                          <CheckCircle2 className="w-6 h-6 text-purple-500" />
+                        )}
+                      </div>
+                    </button>
+                  ))}
                 </div>
-
-                <button
-                  onClick={handleAddRow}
-                  className="flex items-center gap-2 px-4 py-2 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-xl transition-colors font-semibold"
-                >
-                  <Plus className="w-5 h-5" />
-                  Adicionar nova linha
-                </button>
-              </div>
-
-              <div className="flex gap-4">
-                <button
-                  onClick={handleSaveTable}
-                  disabled={!isTableValid}
-                  className={`flex-1 py-5 px-8 bg-gradient-to-r ${selectedTheme.color} text-white rounded-2xl font-bold text-xl transition-all duration-300 flex items-center justify-center gap-2 ${
-                    isTableValid
-                      ? 'hover:shadow-2xl hover:scale-105 cursor-pointer'
-                      : 'opacity-50 cursor-not-allowed'
-                  }`}
-                >
-                  <Save className="w-6 h-6" />
-                  Salvar e Continuar
-                </button>
-              </div>
-
-              {!isTableValid && (
-                <p className="text-center text-sm text-gray-500 dark:text-gray-400 mt-4">
-                  Preencha todas as perguntas e respostas para continuar
-                </p>
               )}
+
+              {currentQuestion.type === "multiple" && currentQuestion.options && (
+                <div className="space-y-3">
+                  {currentQuestion.options[language].map((option, index) => {
+                    const currentAnswers = (quizAnswers[currentQuestion.id] as string[]) || []
+                    const isSelected = currentAnswers.includes(option)
+                    
+                    return (
+                      <button
+                        key={index}
+                        onClick={() => {
+                          const newAnswers = isSelected
+                            ? currentAnswers.filter(a => a !== option)
+                            : [...currentAnswers, option]
+                          handleAnswer(currentQuestion.id, newAnswers)
+                        }}
+                        className={`w-full p-5 rounded-2xl border-2 transition-all duration-300 text-left hover:scale-105 ${
+                          isSelected
+                            ? `border-pink-500 bg-pink-50 dark:bg-pink-900/30 shadow-lg`
+                            : 'border-pink-200 dark:border-pink-800 hover:border-pink-400 dark:hover:border-pink-600'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-lg font-semibold text-gray-800 dark:text-gray-200">
+                            {option}
+                          </span>
+                          {isSelected && (
+                            <CheckCircle2 className="w-6 h-6 text-pink-500" />
+                          )}
+                        </div>
+                      </button>
+                    )
+                  })}
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-4">
+                    {t.quiz.selectMultiple}
+                  </p>
+                </div>
+              )}
+
+              {currentQuestion.type === "text" && (
+                <div className="space-y-4">
+                  <textarea
+                    value={(quizAnswers[currentQuestion.id] as string) || ""}
+                    onChange={(e) => handleAnswer(currentQuestion.id, e.target.value)}
+                    placeholder={t.quiz.textPlaceholder}
+                    rows={6}
+                    className="w-full px-6 py-4 rounded-2xl border-2 border-purple-200 dark:border-purple-800 focus:border-purple-500 dark:focus:border-purple-500 focus:outline-none text-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 transition-all duration-300 resize-none"
+                  />
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    {t.quiz.textHelper}
+                  </p>
+                </div>
+              )}
+
+              <button
+                onClick={handleNextQuestion}
+                disabled={!isAnswered}
+                className={`w-full mt-8 py-5 px-8 bg-gradient-to-r ${selectedTheme.color} text-white rounded-2xl font-bold text-xl transition-all duration-300 ${
+                  isAnswered
+                    ? 'hover:shadow-2xl hover:scale-105 cursor-pointer'
+                    : 'opacity-50 cursor-not-allowed'
+                }`}
+              >
+                {currentQuestionIndex < currentQuiz.length - 1 ? t.quiz.nextQuestion : t.quiz.finishQuiz}
+                <ChevronRight className="inline-block ml-2 w-6 h-6" />
+              </button>
             </div>
           </div>
         </div>
